@@ -453,6 +453,7 @@ def main():
     # Early Stopping 변수 초기화
     # 2025-11-13, 김병현 수정 - Early Stopping 구현
     best_val_acc = 0
+    best_step_acc = 0
     patience_counter = 0  # 개선되지 않은 연속 epoch 수
 
     for epoch in range(EPOCHS):
@@ -478,11 +479,17 @@ def main():
         )
 
         # 최고 모델 저장 및 Early Stopping 체크
-        if val_step_acc > best_val_acc:
-            best_val_acc = val_step_acc
+        # 스텝 정확도, 전체 문장을 맞춘 정확도 둘 다 고려
+        if val_step_acc > best_step_acc:
+            best_step_acc = val_step_acc
             patience_counter = 0  # 개선되었으므로 카운터 리셋
             torch.save(model.state_dict(), "models/sentence_order_model_best.pt")
             print(f"   ✨ 최고 모델 저장! (Val Step Acc: {val_step_acc:.4f})")
+        elif val_acc > best_val_acc:
+            best_val_acc = val_acc
+            patience_counter = 0  # 개선되었으므로 카운터 리셋
+            torch.save(model.state_dict(), "models/sentence_order_model_best.pt")
+            print(f"   ✨ 최고 모델 저장! (Val Acc: {val_acc:.4f})")
         else:
             patience_counter += 1
             print(
