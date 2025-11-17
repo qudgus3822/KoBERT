@@ -298,7 +298,7 @@ def main():
     # 2025-11-07, 김병현 수정 - 메모리 절약을 위한 설정 조정
     BATCH_SIZE = 16  # 8 → 2 (메모리 부족 방지)
     LEARNING_RATE = 1e-4
-    EPOCHS = 5
+    EPOCHS = 20
     MAX_SENTENCES = 12  # 데이터셋에 12개 문장까지 있음
     MAX_LENGTH = 64  # 128 → 64 (문장이 짧으므로 줄임)
     TRAIN_SPLIT = 0.8
