@@ -179,7 +179,9 @@ def train_epoch(
         if batch_idx == 0:
             print(f"\n[DEBUG] logits shape: {logits.shape}")
             print(f"[DEBUG] labels shape: {labels.shape}")
-            print(f"[DEBUG] logits min/max: {logits.min().item():.2f} / {logits.max().item():.2f}")
+            print(
+                f"[DEBUG] logits min/max: {logits.min().item():.2f} / {logits.max().item():.2f}"
+            )
             print(f"[DEBUG] labels sample: {labels[0]}")
             print(f"[DEBUG] logits has inf: {torch.isinf(logits).any()}")
             print(f"[DEBUG] logits has nan: {torch.isnan(logits).any()}")
@@ -445,18 +447,22 @@ def main():
             device,
             gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
         )
-        print(f"   Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, Train Step Acc: {train_step_acc:.4f}")
+        print(
+            f"   Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, Train Step Acc: {train_step_acc:.4f}"
+        )
 
         # 검증
         val_loss, val_acc, val_step_acc = evaluate(model, val_loader, criterion, device)
-        print(f"   Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}, Val Step Acc: {val_step_acc:.4f}")
+        print(
+            f"   Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}, Val Step Acc: {val_step_acc:.4f}"
+        )
 
         # 최고 모델 저장 및 Early Stopping 체크
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
+        if val_step_acc > best_val_acc:
+            best_val_acc = val_step_acc
             patience_counter = 0  # 개선되었으므로 카운터 리셋
             torch.save(model.state_dict(), "models/sentence_order_model_best.pt")
-            print(f"   ✨ 최고 모델 저장! (Val Acc: {val_acc:.4f})")
+            print(f"   ✨ 최고 모델 저장! (Val Step Acc: {val_step_acc:.4f})")
         else:
             patience_counter += 1
             print(
