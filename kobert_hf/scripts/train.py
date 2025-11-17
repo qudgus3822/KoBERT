@@ -40,10 +40,35 @@ class SentenceOrderDataset(Dataset):
             input_ids_list: List of [seq_len] - 각 문장의 토큰 ID
             attention_mask_list: List of [seq_len] - 각 문장의 마스크
             labels: [num_sentences] - 각 문장의 올바른 순서
+
+        2025-11-10, 김병현 수정 - Subset 인덱싱 오류 수정
         """
+        # idx를 정수로 변환 (Subset에서 넘어올 수 있음)
+        idx = int(idx) if not isinstance(idx, int) else idx
+
+        # 인덱스 범위 체크
+        if idx < 0 or idx >= len(self.data):
+            raise IndexError(
+                f"Index {idx} out of range for dataset of size {len(self.data)}"
+            )
+
         item = self.data[idx]
+
+        # item이 딕셔너리인지 확인
+        if not isinstance(item, dict):
+            raise TypeError(f"Expected dict at index {idx}, got {type(item)}")
+
         sentences = item["shuffled_sentences"]
         labels = item["correct_order"]
+
+        # 레이블 변환: 위치 매핑 → 선택 순서
+        # 2025-11-17, 김병현 수정 - 포인터 네트워크 형식에 맞게 레이블 변환
+        # 데이터셋: [6, 7, 1, 2, 5, 0, 4, 3] (0번 문장이 6번째 위치)
+        # 필요한 형식: [5, 2, 3, 7, 6, 4, 0, 1] (0번째 위치에 5번 문장)
+        num_sentences = len(sentences)
+        pointer_labels = [0] * num_sentences
+        for sentence_idx, position in enumerate(labels):
+            pointer_labels[position] = sentence_idx
 
         # 각 문장을 토큰화
         input_ids_list = []
@@ -63,7 +88,7 @@ class SentenceOrderDataset(Dataset):
         return {
             "input_ids_list": input_ids_list,
             "attention_mask_list": attention_mask_list,
-            "labels": torch.tensor(labels, dtype=torch.long),
+            "labels": torch.tensor(pointer_labels, dtype=torch.long),
         }
 
 
@@ -142,10 +167,15 @@ def train_epoch(
         logits = model(input_ids_list, attention_mask_list)
 
         # Loss 계산
-        # logits: [batch_size, num_sentences, num_sentences]
-        # labels: [batch_size, num_sentences]
-        batch_size, num_sentences, _ = logits.shape
-        loss = criterion(logits.view(-1, logits.size(-1)), labels.view(-1))
+        # 2025-11-17, 김병현 수정 - 포인터 네트워크 loss 계산 방식 변경
+        # logits: [batch_size, num_steps, num_sentences] (각 스텝에서 선택할 문장의 확률)
+        # labels: [batch_size, num_steps] (각 스텝에서 선택해야 할 문장 인덱스)
+        batch_size, num_steps, num_choices = logits.shape
+
+        # 각 스텝의 loss를 계산
+        loss = criterion(
+            logits.view(batch_size * num_steps, num_choices), labels.view(-1)
+        )
 
         # Gradient Accumulation을 위해 loss를 나눔
         loss = loss / gradient_accumulation_steps
@@ -159,8 +189,10 @@ def train_epoch(
             optimizer.zero_grad()
 
         # 정확도 계산 (레이블 -100은 제외)
-        predictions = torch.argmax(logits, dim=-1)
+        # 2025-11-17, 김병현 수정 - 전체 순서가 정확해야 정답으로 계산
+        predictions = torch.argmax(logits, dim=-1)  # [batch_size, num_steps]
         mask = labels != -100
+        # 모든 스텝에서 정확히 맞춰야 정답
         correct += ((predictions == labels) & mask).all(dim=1).sum().item()
         total += batch_size
 
@@ -181,7 +213,7 @@ def train_epoch(
 def evaluate(model, dataloader, criterion, device):
     """
     모델 평가
-    2025-11-07, 김병현 수정 - 정확도 계산 시 -100 레이블 제외
+    2025-11-17, 김병현 수정 - 포인터 네트워크에 맞게 수정
     """
     model.eval()
     total_loss = 0
@@ -198,10 +230,15 @@ def evaluate(model, dataloader, criterion, device):
 
             logits = model(input_ids_list, attention_mask_list)
 
-            batch_size = logits.size(0)
-            loss = criterion(logits.view(-1, logits.size(-1)), labels.view(-1))
+            # Loss 계산
+            # 2025-11-17, 김병현 수정 - train과 동일한 방식으로 계산
+            batch_size, num_steps, num_choices = logits.shape
+            loss = criterion(
+                logits.view(batch_size * num_steps, num_choices), labels.view(-1)
+            )
 
             # 정확도 계산 (레이블 -100은 제외)
+            # 2025-11-17, 김병현 수정 - 전체 순서가 정확히 맞아야 정답으로 계산
             predictions = torch.argmax(logits, dim=-1)
             mask = labels != -100
             correct += ((predictions == labels) & mask).all(dim=1).sum().item()
@@ -224,13 +261,18 @@ def main():
 
     # 하이퍼파라미터
     # 2025-11-07, 김병현 수정 - 메모리 절약을 위한 설정 조정
-    BATCH_SIZE = 2  # 8 → 2 (메모리 부족 방지)
-    LEARNING_RATE = 2e-5
-    EPOCHS = 20  # 10 → 20 (성능 향상을 위해 증가)
+    BATCH_SIZE = 8  # 8 → 2 (메모리 부족 방지)
+    LEARNING_RATE = 1e-4
+    EPOCHS = 5
     MAX_SENTENCES = 12  # 데이터셋에 12개 문장까지 있음
     MAX_LENGTH = 64  # 128 → 64 (문장이 짧으므로 줄임)
     TRAIN_SPLIT = 0.8
     GRADIENT_ACCUMULATION_STEPS = 4  # 실질적 배치 크기 = 2 × 4 = 8
+
+    # Early Stopping 설정
+    # 2025-11-13, 김병현 수정 - 과적합 방지를 위한 Early Stopping 추가
+    EARLY_STOPPING_PATIENCE = 3  # 검증 정확도가 개선되지 않으면 N epoch 후 중단
+    RESUME_TRAINING = True  # True: 기존 모델 이어서 학습, False: 새로 시작
 
     # Device 설정
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -241,11 +283,26 @@ def main():
     tokenizer = KoBERTTokenizer.from_pretrained("skt/kobert-base-v1")
 
     # 데이터셋 로드
+    # 2025-11-13, 김병현 수정 - 일부 데이터만 사용하는 옵션 추가
     print("✅ 데이터셋 로드 중...")
     dataset = SentenceOrderDataset(
         "data/sentence_order_dataset.json", tokenizer, max_length=MAX_LENGTH
     )
     print(f"   전체 데이터: {len(dataset)}개")
+
+    # 데이터 일부만 사용 (테스트용)
+    USE_SUBSET = False  # True: 일부만 사용, False: 전체 사용
+    SUBSET_SIZE = 500  # 사용할 데이터 개수
+
+    if USE_SUBSET and len(dataset) > SUBSET_SIZE:
+        # 랜덤하게 일부 선택
+        import random
+
+        indices = list(range(len(dataset)))
+        random.shuffle(indices)
+        selected_indices = indices[:SUBSET_SIZE]
+        dataset = torch.utils.data.Subset(dataset, selected_indices)
+        print(f"   ⚠️  일부 데이터만 사용: {SUBSET_SIZE}개")
 
     # Train/Val 분할
     train_size = int(len(dataset) * TRAIN_SPLIT)
@@ -270,38 +327,51 @@ def main():
         max_sentences=MAX_SENTENCES, hidden_size=768, dropout=0.1
     ).to(device)
 
-    # 기존 모델이 있으면 로드 (이어서 학습)
-    # 2025-11-07, 김병현 수정 - 이어서 학습 기능 추가
+    # 기존 모델 로드 여부 확인
+    # 2025-11-13, 김병현 수정 - RESUME_TRAINING 옵션 추가
     import os
 
     pretrained_model_path = "models/sentence_order_model_best.pt"
-    if os.path.exists(pretrained_model_path):
+    if RESUME_TRAINING and os.path.exists(pretrained_model_path):
         print(f"   🔄 기존 모델 발견: {pretrained_model_path}")
         print(f"   📥 기존 모델 로드 중... (이어서 학습)")
         model.load_state_dict(torch.load(pretrained_model_path, map_location=device))
         print(f"   ✅ 기존 모델 로드 완료!")
     else:
-        print(f"   🆕 새로운 모델 생성")
+        if not RESUME_TRAINING:
+            print(f"   🆕 새로운 모델 생성 (RESUME_TRAINING=False)")
+        else:
+            print(f"   🆕 새로운 모델 생성 (기존 모델 없음)")
 
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"   전체 파라미터: {total_params:,}")
     print(f"   학습 가능 파라미터: {trainable_params:,}")
 
+    # for param in model.bert.embeddings.parameters():
+    #     param.requires_grad = False
+    # for param in model.bert.encoder.layer[:6].parameters():
+    #     param.requires_grad = False
+    # for param in model.bert.encoder.layer[6:].parameters():
+    #     param.requires_grad = False
+
+    for param in model.bert.parameters():
+        param.requires_grad = False
+
     # Optimizer & Loss
     # 2025-11-07, 김병현 수정 - Discriminative Learning Rate 적용
     # 하위 레이어는 작은 lr, 상위 레이어와 새 레이어는 큰 lr
     optimizer = AdamW(
         [
-            # BERT 임베딩 & 하위 레이어 (0-5): 매우 작은 lr
-            {"params": model.bert.embeddings.parameters(), "lr": 1e-6},
-            {"params": model.bert.encoder.layer[:6].parameters(), "lr": 5e-6},
-            # BERT 상위 레이어 (6-11): 중간 lr
-            {"params": model.bert.encoder.layer[6:].parameters(), "lr": 1e-5},
-            {"params": model.bert.pooler.parameters(), "lr": 1e-5},
+            # # BERT 임베딩 & 하위 레이어 (0-5): 매우 작은 lr
+            # {"params": model.bert.embeddings.parameters(), "lr": 2e-6},
+            # {"params": model.bert.encoder.layer[:6].parameters(), "lr": 1e-5},
+            # # BERT 상위 레이어 (6-11): 중간 lr
+            # {"params": model.bert.encoder.layer[6:].parameters(), "lr": 2e-5},
+            # {"params": model.bert.pooler.parameters(), "lr": 2e-5},
             # 새로 추가된 레이어: 큰 lr
-            {"params": model.sentence_attention.parameters(), "lr": LEARNING_RATE},
-            {"params": model.classifier.parameters(), "lr": LEARNING_RATE},
+            {"params": model.sequence_encoder.parameters(), "lr": LEARNING_RATE},
+            {"params": model.pointer_decoder.parameters(), "lr": LEARNING_RATE},
         ],
         weight_decay=0.01,
     )
@@ -312,24 +382,24 @@ def main():
     print("\n" + "=" * 70)
     print("⚙️  학습 설정")
     print("=" * 70)
-    print(f"   📊 Learning Rate 전략: Discriminative")
-    print(f"      - BERT 임베딩 & 하위 레이어 (0-5): 1e-6 ~ 5e-6")
-    print(f"      - BERT 상위 레이어 (6-11): 1e-5")
-    print(f"      - 새 레이어 (Attention, Classifier): {LEARNING_RATE}")
-    print(f"   🎯 Weight Decay: 0.01 (L2 정규화)")
     print(f"   🔄 Epochs: {EPOCHS}")
     print(
         f"   📦 Batch Size: {BATCH_SIZE} (실질적: {BATCH_SIZE * GRADIENT_ACCUMULATION_STEPS})"
     )
     print(f"   💾 Gradient Accumulation: {GRADIENT_ACCUMULATION_STEPS} steps")
     print(f"   📏 Max Length: {MAX_LENGTH} tokens")
+    print(f"   🛑 Early Stopping: Patience {EARLY_STOPPING_PATIENCE} epochs")
 
     # 학습 시작
     print("\n" + "=" * 70)
     print("🚀 학습 시작")
     print("=" * 70)
 
+    # Early Stopping 변수 초기화
+    # 2025-11-13, 김병현 수정 - Early Stopping 구현
     best_val_acc = 0
+    patience_counter = 0  # 개선되지 않은 연속 epoch 수
+
     for epoch in range(EPOCHS):
         print(f"\n📍 Epoch {epoch + 1}/{EPOCHS}")
 
@@ -348,11 +418,25 @@ def main():
         val_loss, val_acc = evaluate(model, val_loader, criterion, device)
         print(f"   Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
 
-        # 최고 모델 저장
+        # 최고 모델 저장 및 Early Stopping 체크
         if val_acc > best_val_acc:
             best_val_acc = val_acc
+            patience_counter = 0  # 개선되었으므로 카운터 리셋
             torch.save(model.state_dict(), "models/sentence_order_model_best.pt")
             print(f"   ✨ 최고 모델 저장! (Val Acc: {val_acc:.4f})")
+        else:
+            patience_counter += 1
+            print(
+                f"   ⚠️  검증 정확도 개선 없음 ({patience_counter}/{EARLY_STOPPING_PATIENCE})"
+            )
+
+            # Early Stopping 조건 충족
+            if patience_counter >= EARLY_STOPPING_PATIENCE:
+                print(
+                    f"\n🛑 Early Stopping: {EARLY_STOPPING_PATIENCE} epoch 동안 개선 없음"
+                )
+                print(f"   최고 검증 정확도: {best_val_acc:.4f}")
+                break
 
     print("\n" + "=" * 70)
     print(f"✅ 학습 완료! 최고 검증 정확도: {best_val_acc:.4f}")

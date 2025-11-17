@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KoBERT 문장 순서 예측</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 900px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        .input-section {
+            margin-bottom: 30px;
+        }
+
+        .input-section h2 {
+            color: #555;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .sentence-input-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .sentence-input {
+            flex: 1;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+
+        .sentence-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn-remove {
+            padding: 10px 20px;
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background 0.3s;
+        }
+
+        .btn-remove:hover {
+            background: #ff5252;
+        }
+
+        .btn-add {
+            padding: 12px 25px;
+            background: #51cf66;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            margin-top: 10px;
+            transition: background 0.3s;
+        }
+
+        .btn-add:hover {
+            background: #40c057;
+        }
+
+        .btn-shuffle {
+            padding: 12px 25px;
+            background: #ffa94d;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            margin-top: 10px;
+            margin-left: 10px;
+            transition: background 0.3s;
+        }
+
+        .btn-shuffle:hover {
+            background: #ff922b;
+        }
+
+        .btn-predict {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-top: 20px;
+            transition: transform 0.2s;
+        }
+
+        .btn-predict:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn-predict:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .result-section {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            display: none;
+        }
+
+        .result-section.show {
+            display: block;
+        }
+
+        .result-section h2 {
+            color: #555;
+            margin-bottom: 15px;
+        }
+
+        .sentence-item {
+            padding: 15px;
+            margin-bottom: 10px;
+            background: white;
+            border-left: 4px solid #667eea;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .sentence-number {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            margin-right: 10px;
+            font-weight: bold;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+            font-size: 1.1em;
+        }
+
+        .loading::after {
+            content: '...';
+            animation: dots 1.5s infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+
+        .error {
+            background: #ffe0e0;
+            border-left-color: #ff6b6b;
+            color: #c92a2a;
+        }
+
+        .example-section {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e7f5ff;
+            border-radius: 8px;
+            border-left: 4px solid #1c7ed6;
+        }
+
+        .example-section h3 {
+            color: #1864ab;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .example-btn {
+            padding: 8px 15px;
+            background: #1c7ed6;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-top: 5px;
+            font-size: 0.9em;
+        }
+
+        .example-btn:hover {
+            background: #1864ab;
+        }
+
+        .confidence-bar {
+            height: 8px;
+            background: #e9ecef;
+            border-radius: 4px;
+            margin-top: 5px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #51cf66, #40c057);
+            transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 KoBERT 문장 순서 예측</h1>
+        <p class="subtitle">섞인 문장들을 올바른 순서로 정렬해드립니다</p>
+
+        <!-- 예시 섹션 -->
+        <div class="example-section">
+            <h3>💡 예시 문장 불러오기</h3>
+            <button class="example-btn" onclick="loadExample1()">아침 일과</button>
+            <button class="example-btn" onclick="loadExample2()">요리 순서</button>
+            <button class="example-btn" onclick="loadExample3()">여행 계획</button>
+        </div>
+
+        <!-- 입력 섹션 -->
+        <div class="input-section">
+            <h2>📝 문장 입력 (섞인 순서)</h2>
+            <div id="sentencesContainer">
+                <!-- 문장 입력 필드가 동적으로 추가됨 -->
+            </div>
+            <button class="btn-add" onclick="addSentenceInput()">➕ 문장 추가</button>
+            <button class="btn-shuffle" onclick="shuffleSentences()">🔀 섞기</button>
+        </div>
+
+        <button class="btn-predict" onclick="predictOrder()" id="predictBtn">
+            🚀 순서 예측하기
+        </button>
+
+        <!-- 결과 섹션 -->
+        <div class="result-section" id="resultSection">
+            <h2>✨ 예측 결과</h2>
+            <div id="resultContainer"></div>
+        </div>
+    </div>
+
+    <script>
+        // 초기 문장 입력 필드 개수
+        const MIN_SENTENCES = 3;
+        let sentenceCount = 0;
+
+        // 페이지 로드 시 초기 입력 필드 생성
+        window.onload = function() {
+            for (let i = 0; i < MIN_SENTENCES; i++) {
+                addSentenceInput();
+            }
+        };
+
+        // 문장 입력 필드 추가
+        function addSentenceInput() {
+            const container = document.getElementById('sentencesContainer');
+            const div = document.createElement('div');
+            div.className = 'sentence-input-container';
+            div.innerHTML = `
+                <input type="text" class="sentence-input" placeholder="문장을 입력하세요..." />
+                <button class="btn-remove" onclick="removeSentenceInput(this)">삭제</button>
+            `;
+            container.appendChild(div);
+            sentenceCount++;
+        }
+
+        // 문장 입력 필드 제거
+        function removeSentenceInput(btn) {
+            const container = document.getElementById('sentencesContainer');
+            if (container.children.length > MIN_SENTENCES) {
+                btn.parentElement.remove();
+                sentenceCount--;
+            } else {
+                alert(`최소 ${MIN_SENTENCES}개의 문장이 필요합니다.`);
+            }
+        }
+
+        // 문장 섞기
+        function shuffleSentences() {
+            const inputs = document.querySelectorAll('.sentence-input');
+            const values = Array.from(inputs).map(input => input.value).filter(v => v.trim());
+
+            if (values.length < 2) {
+                alert('섞을 문장이 충분하지 않습니다.');
+                return;
+            }
+
+            // Fisher-Yates 셔플 알고리즘
+            for (let i = values.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [values[i], values[j]] = [values[j], values[i]];
+            }
+
+            inputs.forEach((input, index) => {
+                if (index < values.length) {
+                    input.value = values[index];
+                }
+            });
+        }
+
+        // 순서 예측 API 호출
+        async function predictOrder() {
+            const inputs = document.querySelectorAll('.sentence-input');
+            const sentences = Array.from(inputs)
+                .map(input => input.value.trim())
+                .filter(s => s.length > 0);
+
+            if (sentences.length < 2) {
+                alert('최소 2개 이상의 문장을 입력해주세요.');
+                return;
+            }
+
+            // 로딩 표시
+            const resultSection = document.getElementById('resultSection');
+            const resultContainer = document.getElementById('resultContainer');
+            const predictBtn = document.getElementById('predictBtn');
+
+            resultSection.classList.add('show');
+            resultContainer.innerHTML = '<div class="loading">모델이 문장 순서를 예측하는 중입니다</div>';
+            predictBtn.disabled = true;
+
+            try {
+                // API 호출
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ sentences: sentences })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                displayResult(data);
+            } catch (error) {
+                resultContainer.innerHTML = `
+                    <div class="sentence-item error">
+                        ❌ 오류 발생: ${error.message}
+                    </div>
+                `;
+            } finally {
+                predictBtn.disabled = false;
+            }
+        }
+
+        // 결과 표시
+        function displayResult(data) {
+            const resultContainer = document.getElementById('resultContainer');
+
+            let html = '<h3 style="margin-bottom: 15px; color: #555;">📋 입력된 문장 (섞인 순서)</h3>';
+            data.original_sentences.forEach((sentence, index) => {
+                html += `
+                    <div class="sentence-item">
+                        <span class="sentence-number">${index + 1}</span>
+                        ${sentence}
+                    </div>
+                `;
+            });
+
+            html += '<h3 style="margin-top: 25px; margin-bottom: 15px; color: #555;">✅ 예측된 올바른 순서</h3>';
+            data.sorted_sentences.forEach((sentence, index) => {
+                // 원래 인덱스 찾기
+                const originalIndex = data.original_sentences.indexOf(sentence);
+                const confidence = data.confidence_scores[originalIndex] ?
+                    Math.max(...data.confidence_scores[originalIndex]) * 100 : 0;
+
+                html += `
+                    <div class="sentence-item">
+                        <span class="sentence-number">${index + 1}</span>
+                        ${sentence}
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" style="width: ${confidence}%"></div>
+                        </div>
+                        <small style="color: #868e96;">신뢰도: ${confidence.toFixed(1)}%</small>
+                    </div>
+                `;
+            });
+
+            resultContainer.innerHTML = html;
+        }
+
+        // 예시 1: 아침 일과
+        function loadExample1() {
+            const sentences = [
+                "학교에 갔다",
+                "일어났다",
+                "밥을 먹었다",
+                "세수를 했다"
+            ];
+            loadSentences(sentences);
+        }
+
+        // 예시 2: 요리 순서
+        function loadExample2() {
+            const sentences = [
+                "맛있게 먹었다",
+                "재료를 준비했다",
+                "냄비에 물을 끓였다",
+                "라면을 넣었다",
+                "3분 기다렸다"
+            ];
+            loadSentences(sentences);
+        }
+
+        // 예시 3: 여행 계획
+        function loadExample3() {
+            const sentences = [
+                "호텔에 체크인했다",
+                "비행기 표를 예약했다",
+                "공항으로 출발했다",
+                "짐을 쌌다",
+                "관광지를 둘러봤다"
+            ];
+            loadSentences(sentences);
+        }
+
+        // 예시 문장 로드
+        function loadSentences(sentences) {
+            // 기존 입력 필드 삭제
+            const container = document.getElementById('sentencesContainer');
+            container.innerHTML = '';
+            sentenceCount = 0;
+
+            // 새로운 입력 필드 생성 및 값 설정
+            sentences.forEach(sentence => {
+                addSentenceInput();
+            });
+
+            const inputs = document.querySelectorAll('.sentence-input');
+            inputs.forEach((input, index) => {
+                input.value = sentences[index];
+            });
+
+            // 자동으로 섞기
+            setTimeout(shuffleSentences, 100);
+        }
+    </script>
+</body>
+</html>

@@ -75,6 +75,35 @@ torch.Size([1, 768])
 
 ```
 
+### 웹 서버 실행 방법
+
+#### 1. 필요한 패키지 설치
+```bash
+pip install -r requirements.txt
+```
+
+#### 2. 웹 서버 실행
+```bash
+# kobert_hf 디렉토리에서 실행
+python app.py
+```
+
+또는 uvicorn 직접 사용:
+```bash
+uvicorn app:app --host 0.0.0.0 --port 8000
+```
+
+#### 3. 브라우저에서 접속
+- 웹 UI: http://localhost:8000
+- API 문서: http://localhost:8000/docs
+
+#### 4. API 사용 예제
+```bash
+curl -X POST "http://localhost:8000/predict" \
+  -H "Content-Type: application/json" \
+  -d '{"sentences": ["학교에 갔다", "일어났다", "밥을 먹었다", "세수를 했다"]}'
+```
+
 ### License
 
 `KoBERT`는 Apache-2.0 라이선스 하에 공개되어 있습니다. 모델 및 코드를 사용할 경우 라이선스 내용을 준수해주세요. 라이선스 전문은 `LICENSE` 파일에서 확인하실 수 있습니다.
