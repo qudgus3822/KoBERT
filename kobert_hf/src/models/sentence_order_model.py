@@ -75,8 +75,6 @@ class SentenceOrderPredictor(nn.Module):
         # 2. 포인터 네트워크 디코더
         self.pointer_decoder = PointerDecoder(hidden_size=hidden_size)
 
-
-
         # 위치 임베딩 (문장이 몇 번째에 있는지)
         self.position_embedding = nn.Embedding(max_sentences, hidden_size)
 
