@@ -430,6 +430,10 @@ def main():
     print("🚀 학습 시작")
     print("=" * 70)
 
+    # 모델 저장 디렉토리 생성
+    # 2025-11-17, 김병현 수정 - models 폴더가 없으면 생성
+    os.makedirs("models", exist_ok=True)
+
     # Early Stopping 변수 초기화
     # 2025-11-13, 김병현 수정 - Early Stopping 구현
     best_val_acc = 0
