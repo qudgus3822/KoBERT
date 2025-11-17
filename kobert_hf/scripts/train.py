@@ -297,7 +297,8 @@ def main():
     # 하이퍼파라미터
     # 2025-11-07, 김병현 수정 - 메모리 절약을 위한 설정 조정
     BATCH_SIZE = 16  # 8 → 2 (메모리 부족 방지)
-    LEARNING_RATE = 1e-4
+    LEARNING_RATE = 1e-4  # Pointer Network 레이어의 Learning Rate
+    BERT_LR = 2e-5  # 2025-11-17, 김병현 수정 - BERT Fine-tuning Learning Rate
     EPOCHS = 20
     MAX_SENTENCES = 12  # 데이터셋에 12개 문장까지 있음
     MAX_LENGTH = 64  # 128 → 64 (문장이 짧으므로 줄임)
@@ -308,6 +309,7 @@ def main():
     # 2025-11-13, 김병현 수정 - 과적합 방지를 위한 Early Stopping 추가
     EARLY_STOPPING_PATIENCE = 3  # 검증 정확도가 개선되지 않으면 N epoch 후 중단
     RESUME_TRAINING = True  # True: 기존 모델 이어서 학습, False: 새로 시작
+    UNFREEZE_BERT = True  # 2025-11-17, 김병현 수정 - BERT Unfreeze 여부
 
     # Device 설정
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -378,38 +380,47 @@ def main():
         else:
             print(f"   🆕 새로운 모델 생성 (기존 모델 없음)")
 
+    # BERT Freeze/Unfreeze 설정
+    # 2025-11-17, 김병현 수정 - BERT Unfreeze 옵션 추가
+    if not UNFREEZE_BERT:
+        # BERT를 Freeze (기존 방식)
+        for param in model.bert.parameters():
+            param.requires_grad = False
+        print(f"   🔒 BERT Frozen: BERT 파라미터는 학습하지 않음")
+    else:
+        # BERT를 Unfreeze (모든 파라미터 학습)
+        for param in model.bert.parameters():
+            param.requires_grad = True
+        print(f"   🔓 BERT Unfrozen: BERT 파라미터도 함께 학습")
+
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"   전체 파라미터: {total_params:,}")
     print(f"   학습 가능 파라미터: {trainable_params:,}")
 
-    # for param in model.bert.embeddings.parameters():
-    #     param.requires_grad = False
-    # for param in model.bert.encoder.layer[:6].parameters():
-    #     param.requires_grad = False
-    # for param in model.bert.encoder.layer[6:].parameters():
-    #     param.requires_grad = False
-
-    for param in model.bert.parameters():
-        param.requires_grad = False
-
     # Optimizer & Loss
-    # 2025-11-07, 김병현 수정 - Discriminative Learning Rate 적용
-    # 하위 레이어는 작은 lr, 상위 레이어와 새 레이어는 큰 lr
-    optimizer = AdamW(
-        [
-            # # BERT 임베딩 & 하위 레이어 (0-5): 매우 작은 lr
-            # {"params": model.bert.embeddings.parameters(), "lr": 2e-6},
-            # {"params": model.bert.encoder.layer[:6].parameters(), "lr": 1e-5},
-            # # BERT 상위 레이어 (6-11): 중간 lr
-            # {"params": model.bert.encoder.layer[6:].parameters(), "lr": 2e-5},
-            # {"params": model.bert.pooler.parameters(), "lr": 2e-5},
-            # 새로 추가된 레이어: 큰 lr
-            {"params": model.sequence_encoder.parameters(), "lr": LEARNING_RATE},
-            {"params": model.pointer_decoder.parameters(), "lr": LEARNING_RATE},
-        ],
-        weight_decay=0.01,
-    )
+    # 2025-11-17, 김병현 수정 - Discriminative Learning Rate 적용 (BERT Unfreeze 시)
+    # BERT: 작은 lr (2e-5), Pointer Network: 큰 lr (1e-4)
+    if UNFREEZE_BERT:
+        optimizer = AdamW(
+            [
+                # BERT 전체: 작은 lr
+                {"params": model.bert.parameters(), "lr": BERT_LR},
+                # Pointer Network 레이어: 큰 lr
+                {"params": model.sequence_encoder.parameters(), "lr": LEARNING_RATE},
+                {"params": model.pointer_decoder.parameters(), "lr": LEARNING_RATE},
+            ],
+            weight_decay=0.01,
+        )
+    else:
+        # BERT가 Frozen일 때는 Pointer Network만 학습
+        optimizer = AdamW(
+            [
+                {"params": model.sequence_encoder.parameters(), "lr": LEARNING_RATE},
+                {"params": model.pointer_decoder.parameters(), "lr": LEARNING_RATE},
+            ],
+            weight_decay=0.01,
+        )
 
     criterion = nn.CrossEntropyLoss(ignore_index=-100)
 
@@ -424,6 +435,11 @@ def main():
     print(f"   💾 Gradient Accumulation: {GRADIENT_ACCUMULATION_STEPS} steps")
     print(f"   📏 Max Length: {MAX_LENGTH} tokens")
     print(f"   🛑 Early Stopping: Patience {EARLY_STOPPING_PATIENCE} epochs")
+    # 2025-11-17, 김병현 수정 - BERT Unfreeze 정보 추가
+    if UNFREEZE_BERT:
+        print(f"   🔓 BERT Unfreeze: True (LR: {BERT_LR}, Pointer LR: {LEARNING_RATE})")
+    else:
+        print(f"   🔒 BERT Frozen: True (Pointer LR: {LEARNING_RATE})")
 
     # 학습 시작
     print("\n" + "=" * 70)
