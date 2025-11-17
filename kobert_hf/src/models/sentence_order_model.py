@@ -225,9 +225,12 @@ class PointerDecoder(nn.Module):
             # 2025-11-17, 김병현 수정 - gradient 계산을 위해 detach() 사용
             predicted_index = torch.argmax(masked_scores, dim=1).detach()
 
+            # 예측된 로짓 저장 (마스킹 전의 원본 scores 저장)
+            # 2025-11-17, 김병현 수정 - 마스킹 전 scores를 저장하여 loss 계산
+            logits_list.append(scores)
+
             # 선택된 문장을 마스킹 (다음 반복에서 재선택 방지)
-            # 2025-11-17, 김병현 수정 - inplace 연산 대신 새로운 텐서 생성
-            mask = mask.clone()
+            # 2025-11-17, 김병현 수정 - inplace 연산으로 수정
             mask.scatter_(dim=1, index=predicted_index.unsqueeze(1), value=True)
 
             # 5. 다음 LSTM 입력 준비
@@ -239,10 +242,6 @@ class PointerDecoder(nn.Module):
                 1,
                 predicted_index.view(batch_size, 1, 1).repeat(1, 1, self.hidden_size),
             )
-
-            # 예측된 로짓 저장 (CrossEntropyLoss가 softmax를 자동으로 적용하므로 raw scores 저장)
-            # 2025-11-17, 김병현 수정 - log_softmax 제거, masked_scores를 그대로 저장
-            logits_list.append(masked_scores)
 
         # [num_sentences, batch_size, num_sentences] -> [batch_size, num_sentences, num_sentences]
         # (생성 순서, 배치, 입력 문장 개수)

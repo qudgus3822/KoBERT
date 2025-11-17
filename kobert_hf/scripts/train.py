@@ -148,12 +148,14 @@ def train_epoch(
 ):
     """
     한 에포크 학습
-    2025-11-07, 김병현 수정 - Gradient Accumulation 추가 (메모리 절약)
+    2025-11-17, 김병현 수정 - 부분 정확도 메트릭 추가
     """
     model.train()
     total_loss = 0
-    correct = 0
+    correct = 0  # 완전 정확도 (모든 스텝 일치)
+    correct_steps = 0  # 스텝별 정확도 (부분 정답)
     total = 0
+    total_steps = 0
 
     progress_bar = tqdm(dataloader, desc="Training")
     optimizer.zero_grad()
@@ -203,36 +205,45 @@ def train_epoch(
             optimizer.zero_grad()
 
         # 정확도 계산 (레이블 -100은 제외)
-        # 2025-11-17, 김병현 수정 - 전체 순서가 정확해야 정답으로 계산
+        # 2025-11-17, 김병현 수정 - 완전 정확도 + 스텝별 정확도 계산
         predictions = torch.argmax(logits, dim=-1)  # [batch_size, num_steps]
         mask = labels != -100
-        # 모든 스텝에서 정확히 맞춰야 정답
+
+        # 완전 정확도: 모든 스텝에서 정확히 맞춰야 정답
         correct += ((predictions == labels) & mask).all(dim=1).sum().item()
         total += batch_size
+
+        # 스텝별 정확도: 각 스텝마다 맞춘 개수
+        correct_steps += ((predictions == labels) & mask).sum().item()
+        total_steps += mask.sum().item()
 
         total_loss += loss.item() * gradient_accumulation_steps
         progress_bar.set_postfix(
             {
                 "loss": loss.item() * gradient_accumulation_steps,
                 "acc": correct / total if total > 0 else 0,
+                "step_acc": correct_steps / total_steps if total_steps > 0 else 0,
             }
         )
 
     avg_loss = total_loss / len(dataloader)
     accuracy = correct / total if total > 0 else 0
+    step_accuracy = correct_steps / total_steps if total_steps > 0 else 0
 
-    return avg_loss, accuracy
+    return avg_loss, accuracy, step_accuracy
 
 
 def evaluate(model, dataloader, criterion, device):
     """
     모델 평가
-    2025-11-17, 김병현 수정 - 포인터 네트워크에 맞게 수정
+    2025-11-17, 김병현 수정 - 부분 정확도 메트릭 추가
     """
     model.eval()
     total_loss = 0
     correct = 0
+    correct_steps = 0
     total = 0
+    total_steps = 0
 
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Evaluating"):
@@ -252,17 +263,25 @@ def evaluate(model, dataloader, criterion, device):
             )
 
             # 정확도 계산 (레이블 -100은 제외)
-            # 2025-11-17, 김병현 수정 - 전체 순서가 정확히 맞아야 정답으로 계산
+            # 2025-11-17, 김병현 수정 - 완전 정확도 + 스텝별 정확도 계산
             predictions = torch.argmax(logits, dim=-1)
             mask = labels != -100
+
+            # 완전 정확도
             correct += ((predictions == labels) & mask).all(dim=1).sum().item()
             total += batch_size
+
+            # 스텝별 정확도
+            correct_steps += ((predictions == labels) & mask).sum().item()
+            total_steps += mask.sum().item()
+
             total_loss += loss.item()
 
     avg_loss = total_loss / len(dataloader) if len(dataloader) > 0 else 0
     accuracy = correct / total if total > 0 else 0
+    step_accuracy = correct_steps / total_steps if total_steps > 0 else 0
 
-    return avg_loss, accuracy
+    return avg_loss, accuracy, step_accuracy
 
 
 # ==================== 메인 학습 루프 ====================
@@ -418,7 +437,7 @@ def main():
         print(f"\n📍 Epoch {epoch + 1}/{EPOCHS}")
 
         # 학습
-        train_loss, train_acc = train_epoch(
+        train_loss, train_acc, train_step_acc = train_epoch(
             model,
             train_loader,
             optimizer,
@@ -426,11 +445,11 @@ def main():
             device,
             gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
         )
-        print(f"   Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}")
+        print(f"   Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, Train Step Acc: {train_step_acc:.4f}")
 
         # 검증
-        val_loss, val_acc = evaluate(model, val_loader, criterion, device)
-        print(f"   Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+        val_loss, val_acc, val_step_acc = evaluate(model, val_loader, criterion, device)
+        print(f"   Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}, Val Step Acc: {val_step_acc:.4f}")
 
         # 최고 모델 저장 및 Early Stopping 체크
         if val_acc > best_val_acc:
