@@ -172,10 +172,24 @@ def train_epoch(
         # labels: [batch_size, num_steps] (각 스텝에서 선택해야 할 문장 인덱스)
         batch_size, num_steps, num_choices = logits.shape
 
+        # 디버깅: logits과 labels 확인
+        # 2025-11-17, 김병현 수정 - loss 무한대 문제 디버깅
+        if batch_idx == 0:
+            print(f"\n[DEBUG] logits shape: {logits.shape}")
+            print(f"[DEBUG] labels shape: {labels.shape}")
+            print(f"[DEBUG] logits min/max: {logits.min().item():.2f} / {logits.max().item():.2f}")
+            print(f"[DEBUG] labels sample: {labels[0]}")
+            print(f"[DEBUG] logits has inf: {torch.isinf(logits).any()}")
+            print(f"[DEBUG] logits has nan: {torch.isnan(logits).any()}")
+
         # 각 스텝의 loss를 계산
         loss = criterion(
             logits.view(batch_size * num_steps, num_choices), labels.view(-1)
         )
+
+        # 디버깅: loss 값 확인
+        if batch_idx == 0:
+            print(f"[DEBUG] loss value: {loss.item()}")
 
         # Gradient Accumulation을 위해 loss를 나눔
         loss = loss / gradient_accumulation_steps
@@ -261,7 +275,7 @@ def main():
 
     # 하이퍼파라미터
     # 2025-11-07, 김병현 수정 - 메모리 절약을 위한 설정 조정
-    BATCH_SIZE = 8  # 8 → 2 (메모리 부족 방지)
+    BATCH_SIZE = 16  # 8 → 2 (메모리 부족 방지)
     LEARNING_RATE = 1e-4
     EPOCHS = 5
     MAX_SENTENCES = 12  # 데이터셋에 12개 문장까지 있음

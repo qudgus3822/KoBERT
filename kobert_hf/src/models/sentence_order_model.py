@@ -218,9 +218,9 @@ class PointerDecoder(nn.Module):
             # 2025-11-17, 김병현 수정 - score 반환으로 변경
             scores = self.attention(decoder_hidden[0], encoder_outputs)
 
-            # 3. 마스킹 적용 (이미 선택된 문장의 점수를 -inf로 만들어 선택 못하게 함)
-            # 2025-11-17, 김병현 수정 - softmax 전 score에 마스킹 적용
-            masked_scores = scores.masked_fill(mask, -float("inf"))
+            # 3. 마스킹 적용 (이미 선택된 문장의 점수를 매우 작게 만들어 선택 못하게 함)
+            # 2025-11-17, 김병현 수정 - -inf 대신 매우 큰 음수 사용 (loss 안정성)
+            masked_scores = scores.masked_fill(mask, -1e9)
 
             # 4. 다음 토큰(문장 인덱스) 예측 및 마스크 업데이트
             # predicted_index: [batch_size]
