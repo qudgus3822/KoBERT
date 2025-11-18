@@ -304,7 +304,7 @@ def main():
 
     MODEL_BEST_PATH = f"{MODEL_DIR}/sentence_order_model_best.pt"
     MODEL_FINAL_PATH = f"{MODEL_DIR}/sentence_order_model_final.pt"
-    DATA_PATH = "data/kobert_hf/data/sentence_order_training_data_4.json"
+    DATA_PATH = "data/sentence_order_training_data_4.json"
 
     # 하이퍼파라미터
     # 2025-11-07, 김병현 수정 - 메모리 절약을 위한 설정 조정
