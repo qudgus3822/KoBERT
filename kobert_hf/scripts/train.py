@@ -379,7 +379,10 @@ def main():
     # 2025-11-13, 김병현 수정 - RESUME_TRAINING 옵션 추가
     import os
 
-    pretrained_model_path = "models/sentence_order_model_best.pt"
+    if is_running_in_colab():
+        pretrained_model_path = "/content/drive/MyDrive/models/sentence_order_model_best.pt"
+    else:
+        pretrained_model_path = "models/sentence_order_model_best.pt"
     if RESUME_TRAINING and os.path.exists(pretrained_model_path):
         print(f"   🔄 기존 모델 발견: {pretrained_model_path}")
         print(f"   📥 기존 모델 로드 중... (이어서 학습)")
