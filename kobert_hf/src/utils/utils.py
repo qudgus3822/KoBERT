@@ -16,8 +16,12 @@ def is_running_in_colab():
     try:
         # google.colab 모듈이 import 가능한지 시도합니다.
         import google.colab
+
         # import에 성공하면 Colab 환경입니다.
         return True
     except ImportError:
         # import에 실패하면 Colab 환경이 아닙니다.
         return False
+
+
+print(is_running_in_colab())
