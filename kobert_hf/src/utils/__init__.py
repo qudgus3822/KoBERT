@@ -2,4 +2,4 @@
 # 2025-11-07, 김병현 작성
 from .utils import is_drive_mounted
 
-__all__ = ["is_drive_mounted"]
+__all__ = ["is_drive_mounted", "is_running_in_colab"]
