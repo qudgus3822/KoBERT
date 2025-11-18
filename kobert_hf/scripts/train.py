@@ -93,16 +93,6 @@ class SentenceOrderDataset(Dataset):
         }
 
 
-# 모델 저장 함수
-def save_model(model):
-    if is_running_in_colab():
-        torch.save(
-            model.state_dict(), "/content/drive/MyDrive/models/sentence_order_model.pt"
-        )
-    else:
-        torch.save(model.state_dict(), "models/sentence_order_model.pt")
-
-
 def collate_fn(batch):
     """
     배치 데이터를 적절한 형태로 변환 (가변 길이 문장 지원)
@@ -305,6 +295,17 @@ def main():
     print("문장 순서 예측 모델 학습")
     print("=" * 70)
 
+    # 모델 경로 설정
+    # 2025-11-18, 김병현 수정 - 모델 경로 중앙 관리
+    if is_running_in_colab():
+        MODEL_DIR = "/content/drive/MyDrive/models"
+    else:
+        MODEL_DIR = "models"
+
+    MODEL_BEST_PATH = f"{MODEL_DIR}/sentence_order_model_best.pt"
+    MODEL_FINAL_PATH = f"{MODEL_DIR}/sentence_order_model_final.pt"
+    DATA_PATH = "data/sentence_order_dataset.json"
+
     # 하이퍼파라미터
     # 2025-11-07, 김병현 수정 - 메모리 절약을 위한 설정 조정
     BATCH_SIZE = 16  # 8 → 2 (메모리 부족 방지)
@@ -333,9 +334,7 @@ def main():
     # 데이터셋 로드
     # 2025-11-13, 김병현 수정 - 일부 데이터만 사용하는 옵션 추가
     print("✅ 데이터셋 로드 중...")
-    dataset = SentenceOrderDataset(
-        "data/sentence_order_dataset.json", tokenizer, max_length=MAX_LENGTH
-    )
+    dataset = SentenceOrderDataset(DATA_PATH, tokenizer, max_length=MAX_LENGTH)
     print(f"   전체 데이터: {len(dataset)}개")
 
     # 데이터 일부만 사용 (테스트용)
@@ -379,16 +378,10 @@ def main():
     # 2025-11-13, 김병현 수정 - RESUME_TRAINING 옵션 추가
     import os
 
-    if is_running_in_colab():
-        pretrained_model_path = (
-            "/content/drive/MyDrive/models/sentence_order_model_best.pt"
-        )
-    else:
-        pretrained_model_path = "models/sentence_order_model_best.pt"
-    if RESUME_TRAINING and os.path.exists(pretrained_model_path):
-        print(f"   🔄 기존 모델 발견: {pretrained_model_path}")
+    if RESUME_TRAINING and os.path.exists(MODEL_BEST_PATH):
+        print(f"   🔄 기존 모델 발견: {MODEL_BEST_PATH}")
         print(f"   📥 기존 모델 로드 중... (이어서 학습)")
-        model.load_state_dict(torch.load(pretrained_model_path, map_location=device))
+        model.load_state_dict(torch.load(MODEL_BEST_PATH, map_location=device))
         print(f"   ✅ 기존 모델 로드 완료!")
     else:
         if not RESUME_TRAINING:
@@ -496,16 +489,12 @@ def main():
 
         # 최고 모델 저장 및 Early Stopping 체크
         # 스텝 정확도, 전체 문장을 맞춘 정확도 둘 다 고려
-        if val_step_acc > best_step_acc:
-            best_step_acc = val_step_acc
+        if val_step_acc > best_step_acc or val_acc > best_val_acc:
+            best_step_acc = max(val_step_acc, best_step_acc)
+            best_val_acc = max(val_acc, best_val_acc)
             patience_counter = 0  # 개선되었으므로 카운터 리셋
-            save_model(model)
+            torch.save(model.state_dict(), MODEL_BEST_PATH)
             print(f"   ✨ 최고 모델 저장! (Val Step Acc: {val_step_acc:.4f})")
-        elif val_acc > best_val_acc:
-            best_val_acc = val_acc
-            patience_counter = 0  # 개선되었으므로 카운터 리셋
-            save_model(model)
-            print(f"   ✨ 최고 모델 저장! (Val Acc: {val_acc:.4f})")
         else:
             patience_counter += 1
             print(
@@ -525,8 +514,8 @@ def main():
     print("=" * 70)
 
     # 최종 모델 저장
-    torch.save(model.state_dict(), "models/sentence_order_model_final.pt")
-    print("✅ 최종 모델 저장: models/sentence_order_model_final.pt")
+    torch.save(model.state_dict(), MODEL_FINAL_PATH)
+    print(f"   📥 최종 모델 저장 완료: {MODEL_FINAL_PATH}")
 
 
 if __name__ == "__main__":
