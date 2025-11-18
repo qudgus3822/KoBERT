@@ -10,6 +10,7 @@ from tqdm import tqdm
 import random
 from kobert_tokenizer import KoBERTTokenizer
 from src.models.sentence_order_model import SentenceOrderPredictor
+from src.utils import is_running_in_colab
 
 
 # ==================== 데이터셋 클래스 ====================
@@ -90,6 +91,16 @@ class SentenceOrderDataset(Dataset):
             "attention_mask_list": attention_mask_list,
             "labels": torch.tensor(pointer_labels, dtype=torch.long),
         }
+
+
+# 모델 저장 함수
+def save_model(model):
+    if is_running_in_colab():
+        torch.save(
+            model.state_dict(), "/content/drive/MyDrive/models/sentence_order_model.pt"
+        )
+    else:
+        torch.save(model.state_dict(), "models/sentence_order_model.pt")
 
 
 def collate_fn(batch):
@@ -488,7 +499,10 @@ def main():
         elif val_acc > best_val_acc:
             best_val_acc = val_acc
             patience_counter = 0  # 개선되었으므로 카운터 리셋
-            torch.save(model.state_dict(), "models/sentence_order_model_best.pt")
+            if is_running_in_colab():
+                torch.save(model.state_dict(), "models/sentence_order_model_best.pt")
+            else:
+                torch.save(model.state_dict(), "models/sentence_order_model_best.pt")
             print(f"   ✨ 최고 모델 저장! (Val Acc: {val_acc:.4f})")
         else:
             patience_counter += 1
