@@ -380,7 +380,9 @@ def main():
     import os
 
     if is_running_in_colab():
-        pretrained_model_path = "/content/drive/MyDrive/models/sentence_order_model_best.pt"
+        pretrained_model_path = (
+            "/content/drive/MyDrive/models/sentence_order_model_best.pt"
+        )
     else:
         pretrained_model_path = "models/sentence_order_model_best.pt"
     if RESUME_TRAINING and os.path.exists(pretrained_model_path):
@@ -497,15 +499,12 @@ def main():
         if val_step_acc > best_step_acc:
             best_step_acc = val_step_acc
             patience_counter = 0  # 개선되었으므로 카운터 리셋
-            torch.save(model.state_dict(), "models/sentence_order_model_best.pt")
+            save_model(model)
             print(f"   ✨ 최고 모델 저장! (Val Step Acc: {val_step_acc:.4f})")
         elif val_acc > best_val_acc:
             best_val_acc = val_acc
             patience_counter = 0  # 개선되었으므로 카운터 리셋
-            if is_running_in_colab():
-                torch.save(model.state_dict(), "models/sentence_order_model_best.pt")
-            else:
-                torch.save(model.state_dict(), "models/sentence_order_model_best.pt")
+            save_model(model)
             print(f"   ✨ 최고 모델 저장! (Val Acc: {val_acc:.4f})")
         else:
             patience_counter += 1
