@@ -146,15 +146,16 @@ async def predict_sentence_order(request: PredictRequest):
     if not sentences:
         raise HTTPException(status_code=400, detail="문장이 비어있습니다")
 
-    if len(sentences) > 12:
-        raise HTTPException(status_code=400, detail="최대 12개의 문장까지 지원합니다")
+    if len(sentences) > 7:
+        raise HTTPException(status_code=400, detail="최대 7개의 문장까지 지원합니다")
 
     try:
         # 모델 추론
+        # 2025-11-18, 김병현 수정 - 중복 선택 방지를 위한 greedy decoding 구현
         with torch.no_grad():
-            # 각 문장을 토큰화
-            input_ids_list = []
-            attention_mask_list = []
+            # 각 문장을 BERT로 인코딩
+            num_sentences = len(sentences)
+            sentence_embeddings = []
 
             for sent in sentences:
                 inputs = TOKENIZER(
@@ -164,43 +165,78 @@ async def predict_sentence_order(request: PredictRequest):
                     max_length=64,
                     truncation=True
                 )
-                input_ids_list.append(inputs['input_ids'].to(DEVICE))
-                attention_mask_list.append(inputs['attention_mask'].to(DEVICE))
+                input_ids = inputs['input_ids'].to(DEVICE)
+                attention_mask = inputs['attention_mask'].to(DEVICE)
 
-            # 모델 실행
-            logits = MODEL(input_ids_list, attention_mask_list)
+                # BERT 인코딩
+                outputs = MODEL.bert(input_ids=input_ids, attention_mask=attention_mask)
+                sentence_emb = outputs.pooler_output  # [1, hidden_size]
+                sentence_embeddings.append(sentence_emb)
 
-            # 확률로 변환 (소프트맥스)
-            probabilities = torch.softmax(logits, dim=-1).squeeze(0)  # [num_sentences, num_sentences]
+            # 모든 문장 임베딩을 쌓기
+            sentence_embeddings = torch.stack(sentence_embeddings, dim=1)  # [1, num_sentences, hidden_size]
 
-            # 각 문장에 대해 가장 높은 확률의 위치 선택
-            predicted_positions = torch.argmax(logits, dim=-1).squeeze(0)  # [num_sentences]
+            # 순서 인코더 실행
+            encoder_outputs, _ = MODEL.sequence_encoder(sentence_embeddings)
 
-            # 리스트로 변환
-            predicted_order = predicted_positions.cpu().tolist()
-            confidence_scores = probabilities.cpu().tolist()
+            # Pointer Decoder - Greedy Decoding (중복 방지)
+            batch_size = 1
+            hidden_size = MODEL.pointer_decoder.hidden_size
 
-            # 예측된 순서대로 문장 정렬
-            # 2025-11-13, 김병현 수정 - 중복 위치 처리 개선 (모든 문장 표시)
-            # predicted_order[i] = j 는 "i번째 문장이 j번째 위치에 와야 한다"는 의미
+            # LSTM 초기 상태
+            h0 = torch.zeros(1, batch_size, hidden_size).to(DEVICE)
+            c0 = torch.zeros(1, batch_size, hidden_size).to(DEVICE)
+            decoder_hidden = (h0, c0)
 
-            # 위치별로 문장들을 그룹화 (같은 위치에 여러 문장이 올 수 있음)
-            position_to_sentences = {}
-            for i, pos in enumerate(predicted_order):
-                if pos not in position_to_sentences:
-                    position_to_sentences[pos] = []
-                position_to_sentences[pos].append(sentences[i])
+            # 초기 입력
+            decoder_input = MODEL.pointer_decoder.initial_input.repeat(batch_size, 1, 1)
 
-            # 위치 순서대로 정렬하여 최종 리스트 생성
-            sorted_sentences = []
-            for pos in sorted(position_to_sentences.keys()):
-                sorted_sentences.extend(position_to_sentences[pos])
+            # 이미 선택된 문장 마스킹
+            mask = torch.zeros(batch_size, num_sentences, dtype=torch.bool).to(DEVICE)
+
+            selected_indices_list = []
+            all_probabilities = []
+
+            # 각 스텝마다 문장 선택
+            for step in range(num_sentences):
+                # LSTM 실행
+                decoder_output, decoder_hidden = MODEL.pointer_decoder.lstm(decoder_input, decoder_hidden)
+
+                # Attention 점수 계산
+                scores = MODEL.pointer_decoder.attention(decoder_hidden[0], encoder_outputs)
+
+                # 마스킹 적용 (이미 선택된 문장 제외)
+                masked_scores = scores.masked_fill(mask, -1e9)
+
+                # Softmax로 확률 계산
+                probabilities = torch.softmax(masked_scores, dim=1)
+                all_probabilities.append(probabilities.squeeze(0).cpu().tolist())
+
+                # 가장 높은 확률의 문장 선택
+                predicted_index = torch.argmax(probabilities, dim=1)
+                selected_indices_list.append(predicted_index.item())
+
+                # 선택된 문장 마스킹
+                mask.scatter_(dim=1, index=predicted_index.unsqueeze(1), value=True)
+
+                # 다음 입력 준비
+                decoder_input = torch.gather(
+                    encoder_outputs,
+                    1,
+                    predicted_index.view(batch_size, 1, 1).repeat(1, 1, hidden_size)
+                )
+
+            # 결과 정리
+            sorted_sentences = [sentences[idx] for idx in selected_indices_list]
+            predicted_order = [0] * num_sentences
+            for position, sentence_idx in enumerate(selected_indices_list):
+                predicted_order[sentence_idx] = position
 
             return PredictResponse(
                 original_sentences=sentences,
                 predicted_order=predicted_order,
                 sorted_sentences=sorted_sentences,
-                confidence_scores=confidence_scores
+                confidence_scores=all_probabilities
             )
 
     except Exception as e:

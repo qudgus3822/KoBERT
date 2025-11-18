@@ -304,7 +304,7 @@ def main():
 
     MODEL_BEST_PATH = f"{MODEL_DIR}/sentence_order_model_best.pt"
     MODEL_FINAL_PATH = f"{MODEL_DIR}/sentence_order_model_final.pt"
-    DATA_PATH = "data/sentence_order_dataset.json"
+    DATA_PATH = "data/sentence_order_dataset_school_extended.json"
 
     # 하이퍼파라미터
     # 2025-11-07, 김병현 수정 - 메모리 절약을 위한 설정 조정
@@ -312,7 +312,7 @@ def main():
     LEARNING_RATE = 1e-4  # Pointer Network 레이어의 Learning Rate
     BERT_LR = 2e-5  # 2025-11-17, 김병현 수정 - BERT Fine-tuning Learning Rate
     EPOCHS = 20
-    MAX_SENTENCES = 12  # 데이터셋에 12개 문장까지 있음
+    MAX_SENTENCES = 7  # 2025-11-18, 김병현 수정 - 데이터셋 최대 4문장
     MAX_LENGTH = 64  # 128 → 64 (문장이 짧으므로 줄임)
     TRAIN_SPLIT = 0.8
     GRADIENT_ACCUMULATION_STEPS = 4  # 실질적 배치 크기 = 2 × 4 = 8
